@@ -2,8 +2,6 @@ package com.xuegao.tree.tree;
 
 import java.util.*;
 
-import static java.lang.System.out;
-
 /**
  * <br/> @PackageName：com.xuegao.tree.avltree
  * <br/> @ClassName：MyTree
@@ -36,7 +34,7 @@ public class MyTree {
         if (node == null) {
             return;
         }
-        out.print(node.getData() + ", ");
+        System.out.print(node.getData() + ", ");
         preorderTraversal(node.getLeftChild());
         preorderTraversal(node.getRightChild());
     }
@@ -44,7 +42,7 @@ public class MyTree {
     // 非递归的先序
     public void preorderTraversalNew() {
         List<Integer> integerList = preorderTraversalNew(root);
-        integerList.forEach(integer -> out.print(integer + ", "));
+        integerList.forEach(integer -> System.out.print(integer + ", "));
     }
 
     // 打印根节点，然后如果左边有，那就一直向左
@@ -102,7 +100,7 @@ public class MyTree {
             return;
         }
         inorderTraversal(node.getLeftChild());
-        out.print(node.getData() + ", ");
+        System.out.print(node.getData() + ", ");
         inorderTraversal(node.getRightChild());
     }
 
@@ -120,7 +118,7 @@ public class MyTree {
         }
         postorderTraversal(node.getLeftChild());
         postorderTraversal(node.getRightChild());
-        out.print(node.getData() + ", ");
+        System.out.print(node.getData() + ", ");
     }
 
     // 非递归的后序
@@ -223,7 +221,7 @@ public class MyTree {
     // 树形打印一棵树
     public void printTree(Node tree) {
         if (this.root == null) {
-            out.println("null");
+            System.out.println("null");
             return;
         }
         ArrayDeque<Node> queue = new ArrayDeque<>();
@@ -247,10 +245,10 @@ public class MyTree {
             }
 
             if (temp.getData() == 0) {
-                out.print("*");
+                System.out.print("*");
                 layerFirst = false;
             } else {
-                out.print(temp.getData());
+                System.out.print(temp.getData());
                 layerFirst = false;
             }
             if (!layerFirst) {
@@ -276,7 +274,7 @@ public class MyTree {
 
             // 这里必须双重保证，他的父节点是，还有他现在的值是
             if (temp == nowLast) {
-                out.println();
+                System.out.println();
                 layerFirst = true;
                 level--;
                 nowLast = nextLast;
@@ -308,7 +306,7 @@ public class MyTree {
 
     public void printSpace(double spaceData) {
         for (int i = 0; i < spaceData; i++) {
-            out.print(" ");
+            System.out.print(" ");
         }
     }
 
