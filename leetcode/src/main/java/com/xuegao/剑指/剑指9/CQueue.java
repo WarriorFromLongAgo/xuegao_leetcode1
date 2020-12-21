@@ -19,7 +19,6 @@ public class CQueue {
 
     public static String cQueue(Stack<Integer> oneStack, Stack<Integer> twoStack, Integer value) {
 
-
         return "";
     }
 }
