@@ -49,7 +49,11 @@ mvn clean package -Dmaven.test.skip=true
 错误: 找不到或无法加载主类 io.netty.example.http.helloworld.HttpHelloWorldServer
 ```
 
-## 重启后再运行
+## 重启
+
+重启一下idea
+
+## 再运行
 
 ![image-20210312200110438](netty/image-20210312200110438.png)
 
