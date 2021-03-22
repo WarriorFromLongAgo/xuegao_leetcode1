@@ -3142,11 +3142,394 @@ RocketMQ消息存储格式如下。
 ## 存储文件组织与内存映射
 
 ```java
+// RocketMQ通过使用内存映射文件来提高IO访问性能，无论是CommitLog、ConsumeQueue还是IndexFile，
+// 单个文件都被设计为固定长度，如果一个文件写满以后再创建一个新文件，文件名就为该文件第一条消息对应的全局物理偏移量。
+```
+
+![image-20210322201035088](rocketmq/image-20210322201035088.png)
+
+![image-20210322201050157](rocketmq/image-20210322201050157.png)
+
+### MappedFileQueue映射文件队列
 
 
+
+## RocketMQ存储文件
+
+
+
+## 消息队列与索引文件恢复
+
+
+
+## Broker正常停止文件恢复
+
+Broker正常停止文件恢复的实现为CommitLog#recoverNormally。
+
+```java
+public void recoverNormally(long maxPhyOffsetOfConsumeQueue) {
+    // Step1:Broker正常停止再重启时，从倒数第三个文件开始进行恢复，如果不足3个文件，则从第一个文件开始恢复。
+    // checkCRCOnRecover参数设置在进行文件恢复时查找消息时是否验证CRC。
+    boolean checkCRCOnRecover = this.defaultMessageStore.getMessageStoreConfig().isCheckCRCOnRecover();
+    final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
+    if (!mappedFiles.isEmpty()) {
+        // Began to recover from the last third file
+        int index = mappedFiles.size() - 3;
+        if (index < 0)
+            index = 0;
+
+        // Step2：解释一下两个局部变量，mappedFileOffset为当前文件已校验通过的offset, 
+        // processOffset为Commitlog文件已确认的物理偏移量等于mappedFile.getFileFromOffset加上mappedFileOffset。
+        MappedFile mappedFile = mappedFiles.get(index);
+        ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
+        long processOffset = mappedFile.getFileFromOffset();
+        long mappedFileOffset = 0;
+        while (true) {
+            
+            // Step3：遍历Commitlog文件，每次取出一条消息，如果查找结果为true并且消息的长度大于0表示消息正确，
+            // mappedFileOffset指针向前移动本条消息的长度；如果查找结果为true并且消息的长度等于0，表示已到该文件的末尾，
+            // 如果还有下一个文件，则重置processOffset、mappedFileOffset重复步骤3，否则跳出循环；如果查找结构为false，
+            // 表明该文件未填满所有消息，跳出循环，结束遍历文件。
+            DispatchRequest dispatchRequest = this.checkMessageAndReturnSize(byteBuffer, checkCRCOnRecover);
+            int size = dispatchRequest.getMsgSize();
+            // Normal data
+            if (dispatchRequest.isSuccess() && size > 0) {
+                mappedFileOffset += size;
+            }
+            // Come the end of the file, switch to the next file Since the
+            // return 0 representatives met last hole,
+            // this can not be included in truncate offset
+            else if (dispatchRequest.isSuccess() && size == 0) {
+                index++;
+                if (index >= mappedFiles.size()) {
+                    // Current branch can not happen
+                    log.info("recover last 3 physics file over, last mapped file " + mappedFile.getFileName());
+                    break;
+                } else {
+                    mappedFile = mappedFiles.get(index);
+                    byteBuffer = mappedFile.sliceByteBuffer();
+                    processOffset = mappedFile.getFileFromOffset();
+                    mappedFileOffset = 0;
+                    log.info("recover next physics file, " + mappedFile.getFileName());
+                }
+            }
+            // Intermediate file read error
+            else if (!dispatchRequest.isSuccess()) {
+                log.info("recover physics file end, " + mappedFile.getFileName());
+                break;
+            }
+        }
+
+        // Step4：更新MappedFileQueue的flushedWhere与commiteedWhere指针。
+        processOffset += mappedFileOffset;
+        this.mappedFileQueue.setFlushedWhere(processOffset);
+        this.mappedFileQueue.setCommittedWhere(processOffset);
+        this.mappedFileQueue.truncateDirtyFiles(processOffset);
+
+        // Clear ConsumeQueue redundant data
+        if (maxPhyOffsetOfConsumeQueue >= processOffset) {
+            log.warn("maxPhyOffsetOfConsumeQueue({}) >= processOffset({}), truncate dirty logic files", 
+                     maxPhyOffsetOfConsumeQueue, processOffset);
+            this.defaultMessageStore.truncateDirtyLogicFiles(processOffset);
+        }
+    } else {
+        // Commitlog case files are deleted
+        log.warn("The commitlog files are deleted, and delete the consume queue files");
+        this.mappedFileQueue.setFlushedWhere(0);
+        this.mappedFileQueue.setCommittedWhere(0);
+        this.defaultMessageStore.destroyLogics();
+    }
+}
 ```
 
 
+
+## 文件刷盘机制
+
+RocketMQ的存储与读写是基于JDK NIO的内存映射机制（MappedByteBuffer）的，消息存储时首先将消息追加到内存，再根据配置的刷盘策略在不同时间进行刷写磁盘。
+
+如果是同步刷盘，消息追加到内存后，将同步调用MappedByteBuffer的force（）方法；
+
+如果是异步刷盘，在消息追加到内存后立刻返回给消息发送端。RocketMQ使用一个单独的线程按照某一个设定的频率执行刷盘操作。
+
+RocketMQ使用一个单独的线程按照某一个设定的频率执行刷盘操作。通过在broker配置文件中配置flushDiskType来设定刷盘方式，可选值为ASYNC_FLUSH（异步刷盘）、SYNC_FLUSH（同步刷盘），默认为异步刷盘。
+
+
+
+## 过期文件删除机制
+
+RocketMQ清除过期文件的方法是：如果非当前写文件在一定时间间隔内没有再次被更新，则认为是过期文件，可以被删除，RocketMQ不会关注这个文件上的消息是否全部被消费。默认每个文件的过期时间为72小时，通过在Broker配置文件中设置fileReservedTime来改变过期时间，单位为小时。
+
+RocketMQ会每隔10s调度一次cleanFilesPeriodically，检测是否需要清除过期文件。执行频率可以通过设置cleanResourceInterval，默认为10s。
+
+```java
+private void cleanFilesPeriodically() {
+    this.cleanCommitLogService.run();
+    this.cleanConsumeQueueService.run();
+}
+```
+
+```java
+this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
+    @Override
+    public void run() {
+        DefaultMessageStore.this.cleanFilesPeriodically();
+    }
+}, 1000 * 60, this.messageStoreConfig.getCleanResourceInterval(), TimeUnit.MILLISECONDS);
+```
+
+分别执行清除消息存储文件（Commitlog文件）与消息消费队列文件（ConsumeQueue文件）。
+
+由于消息消费队列文件与消息存储文件（Commitlog）共用一套过期文件删除机制，本书将重点讲解消息存储过期文件删除。
+
+实现方法：DefaultMessageStore$CleanCommitLogService#deleteExpiredFiles。
+
+
+
+Step1：解释一下这个三个配置属性的含义。
+
+1）fileReservedTime：文件保留时间，也就是从最后一次更新时间到现在，如果超过了该时间，则认为是过期文件，可以被删除。
+
+2）deletePhysicFilesInterval：删除物理文件的间隔，因为在一次清除过程中，可能需要被删除的文件不止一个，该值指定两次删除文件的间隔时间。
+
+3）destroyMapedFileIntervalForcibly：在清除过期文件时，如果该文件被其他线程所占用（引用次数大于0，比如读取消息），此时会阻止此次删除任务，同时在第一次试图删除该文件时记录当前时间戳，destroyMapedFileIntervalForcibly表示第一次拒绝删除之后能保留的最大时间，在此时间内，同样可以被拒绝删除，同时会将引用减少1000个，超过该时间间隔后，文件将被强制删除。
+
+
+
+Step2:RocketMQ在如下三种情况任意之一满足的情况下将继续执行删除文件操作。
+
+1）指定删除文件的时间点，RocketMQ通过deleteWhen设置一天的固定时间执行一次删除过期文件操作，默认为凌晨4点。
+
+2）磁盘空间是否充足，如果磁盘空间不充足，则返回true，表示应该触发过期文件删除操作。
+
+3）预留，手工触发，可以通过调用excuteDeleteFilesManualy方法手工触发过期文件删除，目前RocketMQ暂未封装手工触发文件删除的命令。
+
+
+
+# 第5章 消息消费
+
+## RocketMQ消息消费概述
+
+消息消费以组的模式开展，一个消费组内可以包含多个消费者，每一个消费组可订阅多个主题，消费组之间有集群模式与广播模式两种消费模式。
+
+群模式，主题下的同一条消息只允许被其中一个消费者消费。
+
+广播模式，主题下的同一条消息将被集群内的所有消费者消费一次。
+
+
+
+消息服务器与消费者之间的消息传送也有两种方式：推模式、拉模式。
+
+所谓的拉模式，是消费端主动发起拉消息请求，而推模式是消息到达消息服务器后，推送给消息消费者。
+
+RocketMQ消息推模式的实现基于拉模式，在拉模式上包装一层，一个拉取任务完成后开始下一个拉取任务。
+
+
+
+集群模式下，多个消费者如何对消息队列进行负载呢？
+
+消息队列负载机制遵循一个通用的思想：一个消息队列同一时间只允许被一个消费者消费，一个消费者可以消费多个消息队列
+
+
+
+RocketMQ支持局部顺序消息消费，也就是保证同一个消息队列上的消息顺序消费。
+
+不支持消息全局顺序消费，如果要实现某一主题的全局顺序消息消费，可以将该主题的队列数设置为1，牺牲高可用性。
+
+
+
+RocketMQ支持两种消息过滤模式：表达式（TAG、SQL92）与类过滤模式。
+
+消息拉模式，主要是由客户端手动调用消息拉取API，而消息推模式是消息服务器主动将消息推送到消息消费端
+
+
+
+## 消息消费者初探
+
+MQPushConsumer 
+
+```java
+void sendMessageBack（MessageExt msg, int delayLevel, String brokerName）;
+// 发送消息ACK确认。
+// msg：消息。
+// delayLevel：消息延迟级别。
+// broderName：消息服务器名称。
+   
+Set<MessageQueue> fetchSubscribeMessageQueues（final String topic）;
+// 获取消费者对主题topic分配了哪些消息队列。
+// topic：主题名称。
+
+void registerMessageListener（final MessageListenerConcurrently messageListener）;
+// 注册并发消息事件监听器。
+
+void registerMessageListener（final MessageListenerOrderly messageListener）;
+// 注册并发消息事件监听器。
+
+void subscribe（final String topic, final String subExpression）;
+// 基于主题订阅消息。
+// topic：消息主题。
+// subExpression：消息过滤表达式，TAG或SQL92表达式。
+
+void subscribe（final String topic, final String fullClassName, final StringfilterClassSource）;
+// 基于主题订阅消息，消息过滤方式使用类模式。
+// topic：消息主题。
+// fullClassName：过滤类全路径名。
+// filterClassSource：过滤类代码
+
+void unsubscribe（final String topic）;
+// 取消消息订阅。
+
+```
+
+DefaultMQPushConsumer（推模式消息消费者）
+
+1）consumerGroup：消费者所属组。2）messageModel：消息消费模式，分为集群模式、广播模式，默认为集群模式。3）ConsumeFromWhere consumeFromWhere，根据消息进度从消息服务器拉取不到消息时重新计算消费策略。CONSUME_FROM_LAST_OFFSET：从队列当前最大偏移量开始消费。CONSUME_FROM_FIRST_OFFSET：从队列当前最小偏移量开始消费。CONSUME_FROM_TIMESTAMP：从消费者启动时间戳开始消费。注意：如果从消息进度服务OffsetStore读取到MessageQueue中的偏移量不小于0，则使用读取到的偏移量，只有在读到的偏移量小于0时，上述策略才会生效。4）allocateMessageQueueStrategy：集群模式下消息队列负载策略。5）Map<String /* topic */, String /* sub expression */> subscription：订阅信息。6）MessageListener messageListener：消息业务监听器。7）private OffsetStore offsetStore：消息消费进度存储器。8）int consumeThreadMin = 20，消息者最新线程数。9）int consumeThreadMax = 64，消费者最大线程数，由于消费者线程池使用无界队列，故消费者线程个数其实最多只有consumeThreadMin个。10）consumeConcurrentlyMaxSpan，并发消息消费时处理队列最大跨度，默认2000，表示如果消息处理队列中偏移量最大的消息与偏移量最小的消息的跨度超过2000则延迟50毫秒后再拉取消息。
+
+11）int pullThresholdForQueue：默认值1000，每1000次流控后打印流控日志。12）long pullInterval = 0，推模式下拉取任务间隔时间，默认一次拉取任务完成继续拉取。13）int pullBatchSize：每次消息拉取所拉取的条数，默认32条。14）int consumeMessageBatchMaxSize：消息并发消费时一次消费消息条数，通俗点说就是每次传入MessageListtener#consumeMessage中的消息条数。15）postSubscriptionWhenPull：是否每次拉取消息都更新订阅信息，默认为false。16）maxReconsumeTimes：最大消费重试次数。如果消息消费次数超过maxReconsume-Times还未成功，则将该消息转移到一个失败队列，等待被删除。17）suspendCurrentQueueTimeMillis：延迟将该队列的消息提交到消费者线程的等待时间，默认延迟1s。18）long consumeTimeout，消息消费超时时间，默认为15，单位为分钟。
+
+
+
+## 消费者启动流程
+
+DefaultMQPushConsumerImpl#start
+
+```java
+public synchronized void start() throws MQClientException {
+    switch (this.serviceState) {
+        case CREATE_JUST:
+            log.info("the consumer [{}] start beginning. messageModel={}, isUnitMode={}", this.defaultMQPushConsumer.getConsumerGroup(),
+                     this.defaultMQPushConsumer.getMessageModel(), this.defaultMQPushConsumer.isUnitMode());
+            this.serviceState = ServiceState.START_FAILED;
+
+            this.checkConfig();
+
+            this.copySubscription();
+
+            if (this.defaultMQPushConsumer.getMessageModel() == MessageModel.CLUSTERING) {
+                this.defaultMQPushConsumer.changeInstanceNameToPID();
+            }
+
+            this.mQClientFactory = MQClientManager.getInstance().getOrCreateMQClientInstance(this.defaultMQPushConsumer, this.rpcHook);
+
+            this.rebalanceImpl.setConsumerGroup(this.defaultMQPushConsumer.getConsumerGroup());
+            this.rebalanceImpl.setMessageModel(this.defaultMQPushConsumer.getMessageModel());
+            this.rebalanceImpl.setAllocateMessageQueueStrategy(this.defaultMQPushConsumer.getAllocateMessageQueueStrategy());
+            this.rebalanceImpl.setmQClientFactory(this.mQClientFactory);
+
+            this.pullAPIWrapper = new PullAPIWrapper(
+                mQClientFactory,
+                this.defaultMQPushConsumer.getConsumerGroup(), isUnitMode());
+            this.pullAPIWrapper.registerFilterMessageHook(filterMessageHookList);
+
+            if (this.defaultMQPushConsumer.getOffsetStore() != null) {
+                this.offsetStore = this.defaultMQPushConsumer.getOffsetStore();
+            } else {
+                switch (this.defaultMQPushConsumer.getMessageModel()) {
+                    case BROADCASTING:
+                        this.offsetStore = new LocalFileOffsetStore(this.mQClientFactory, this.defaultMQPushConsumer.getConsumerGroup());
+                        break;
+                    case CLUSTERING:
+                        this.offsetStore = new RemoteBrokerOffsetStore(this.mQClientFactory, this.defaultMQPushConsumer.getConsumerGroup());
+                        break;
+                    default:
+                        break;
+                }
+                this.defaultMQPushConsumer.setOffsetStore(this.offsetStore);
+            }
+            this.offsetStore.load();
+
+            if (this.getMessageListenerInner() instanceof MessageListenerOrderly) {
+                this.consumeOrderly = true;
+                this.consumeMessageService =
+                    new ConsumeMessageOrderlyService(this, (MessageListenerOrderly) this.getMessageListenerInner());
+            } else if (this.getMessageListenerInner() instanceof MessageListenerConcurrently) {
+                this.consumeOrderly = false;
+                this.consumeMessageService =
+                    new ConsumeMessageConcurrentlyService(this, (MessageListenerConcurrently) this.getMessageListenerInner());
+            }
+
+            this.consumeMessageService.start();
+
+            boolean registerOK = mQClientFactory.registerConsumer(this.defaultMQPushConsumer.getConsumerGroup(), this);
+            if (!registerOK) {
+                this.serviceState = ServiceState.CREATE_JUST;
+                this.consumeMessageService.shutdown(defaultMQPushConsumer.getAwaitTerminationMillisWhenShutdown());
+                throw new MQClientException("The consumer group[" + this.defaultMQPushConsumer.getConsumerGroup()
+                                            + "] has been created before, specify another name please." + FAQUrl.suggestTodo(FAQUrl.GROUP_NAME_DUPLICATE_URL),
+                                            null);
+            }
+
+            mQClientFactory.start();
+            log.info("the consumer [{}] start OK.", this.defaultMQPushConsumer.getConsumerGroup());
+            this.serviceState = ServiceState.RUNNING;
+            break;
+        case RUNNING:
+        case START_FAILED:
+        case SHUTDOWN_ALREADY:
+            throw new MQClientException("The PushConsumer service state not OK, maybe started once, "
+                                        + this.serviceState
+                                        + FAQUrl.suggestTodo(FAQUrl.CLIENT_SERVICE_NOT_OK),
+                                        null);
+        default:
+            break;
+    }
+
+    this.updateTopicSubscribeInfoWhenSubscriptionChanged();
+    this.mQClientFactory.checkClientInBroker();
+    this.mQClientFactory.sendHeartbeatToAllBrokerWithLock();
+    this.mQClientFactory.rebalanceImmediately();
+}
+```
+
+
+
+DefaultMQPushConsumerImpl#copySubscription
+
+Step1：构建主题订阅信息SubscriptionData并加入到RebalanceImpl的订阅消息中。
+
+订阅关系来源主要有两个。
+
+1）通过调用DefaultMQPushConsumerImpl#subscribe（String topic, Stringsub Expression）方法。
+
+2）订阅重试主题消息。从这里可以看出，RocketMQ消息重试是以消费组为单位，而不是主题，消息重试主题名为%RETRY%+消费组名。
+
+消费者在启动的时候会自动订阅该主题，参与该主题的消息队列负载。
+
+```java
+private void copySubscription() throws MQClientException {
+    try {
+        Map<String, String> sub = this.defaultMQPushConsumer.getSubscription();
+        if (sub != null) {
+            for (final Map.Entry<String, String> entry : sub.entrySet()) {
+                final String topic = entry.getKey();
+                final String subString = entry.getValue();
+                SubscriptionData subscriptionData = FilterAPI.buildSubscriptionData(this.defaultMQPushConsumer.getConsumerGroup(),
+                                                                                    topic, subString);
+                this.rebalanceImpl.getSubscriptionInner().put(topic, subscriptionData);
+            }
+        }
+
+        if (null == this.messageListenerInner) {
+            this.messageListenerInner = this.defaultMQPushConsumer.getMessageListener();
+        }
+
+        switch (this.defaultMQPushConsumer.getMessageModel()) {
+            case BROADCASTING:
+                break;
+            case CLUSTERING:
+                final String retryTopic = MixAll.getRetryTopic(this.defaultMQPushConsumer.getConsumerGroup());
+                SubscriptionData subscriptionData = FilterAPI.buildSubscriptionData(this.defaultMQPushConsumer.getConsumerGroup(),
+                                                                                    retryTopic, SubscriptionData.SUB_ALL);
+                this.rebalanceImpl.getSubscriptionInner().put(retryTopic, subscriptionData);
+                break;
+            default:
+                break;
+        }
+    } catch (Exception e) {
+        throw new MQClientException("subscription exception", e);
+    }
+}
+```
 
 
 
