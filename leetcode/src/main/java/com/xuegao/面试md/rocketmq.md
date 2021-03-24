@@ -3531,6 +3531,32 @@ private void copySubscription() throws MQClientException {
 }
 ```
 
+Step2：初始化MQClientInstance、RebalanceImple（消息重新负载实现类）等。
+
+
+
+# 第8章 事务消息
+
+## 事务消息实现思想
+
+RocketMQ事务消息的实现原理基于两阶段提交和定时事务状态回查来决定消息最终是提交还是回滚，
+
+![image-20210324191142815](rocketmq/image-20210324191142815.png)
+
+1）应用程序在事务内完成相关业务数据落库后，需要同步调用RocketMQ消息发送接口，发送状态为prepare的消息。消息发送成功后，RocketMQ服务器会回调RocketMQ消息发送者的事件监听程序，记录消息的本地事务状态，该相关标记与本地业务操作同属一个事务，确保消息发送与本地事务的原子性。
+
+2）RocketMQ在收到类型为prepare的消息时，会首先备份消息的原主题与原消息消费队列，然后将消息存储在主题为RMQ_SYS_TRANS_HALF_TOPIC的消息消费队列中。
+
+3）RocketMQ消息服务器开启一个定时任务，消费RMQ_SYS_TRANS_HALF_TOPIC的消息，向消息发送端（应用程序）发起消息事务状态回查，应用程序根据保存的事务状态回馈消息服务器事务的状态（提交、回滚、未知），如果是提交或回滚，则消息服务器提交或回滚消息，如果是未知，待下一次回查，RocketMQ允许设置一条消息的回查间隔与回查次数，如果在超过回查次数后依然无法获知消息的事务状态，则默认回滚消息。
+
+
+
+## 事务消息发送流程
+
+RocketMQ事务消息发送者为org.apache.rocketmq.client.producer.TransactionMQProducer。
+
+
+
 
 
 
