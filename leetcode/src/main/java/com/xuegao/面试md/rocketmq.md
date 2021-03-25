@@ -3559,7 +3559,382 @@ RocketMQ事务消息发送者为org.apache.rocketmq.client.producer.TransactionM
 
 
 
+# main代码实战
+
+## 同步消息
+
+生产者
+
+```java
+public class SyncProducer {
+    public static void main(String[] args) throws MQClientException {
+        DefaultMQProducer producer = new DefaultMQProducer("sync_queue");
+        producer.setNamesrvAddr("127.0.0.1:9876");
+        producer.start();
+        for (int i = 0; i < 10; i++) {
+            try {
+                Message msg = new Message("TopicTest",
+                        "TagA",
+                        ("SyncProducer " + i).getBytes(StandardCharsets.UTF_8)
+                );
+                SendResult sendResult = producer.send(msg, 3000);
+
+                SendStatus status = sendResult.getSendStatus();
+                System.err.println(status);
+                System.err.println("消息发出: " + sendResult);
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        producer.shutdown();
+    }
+}
+```
+
+producer向 broker 发送消息，执行 API 时同步等待， 直到broker 服务器返回发送结果 。
+
+流程：SendMessageProcessor——asyncProcessRequest接收消息，PutMessage保存消息
 
 
 
+消费者
+
+```java
+public class SyncConsumer {
+    public static void main(String[] args) throws MQClientException {
+        DefaultMQPushConsumer consumer = new DefaultMQPushConsumer("sync_queue");
+        consumer.setNamesrvAddr("127.0.0.1:9876");
+
+        // Specify where to start in case the specified consumer group is a brand new one.
+        consumer.setConsumeFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET);
+
+        /*
+         * Subscribe one more more topics to consume.
+         */
+        consumer.subscribe("TopicTest", "*");
+
+        /*
+         *  Register callback to execute on arrival of messages fetched from brokers.
+         */
+        consumer.registerMessageListener(new MessageListenerConcurrently() {
+
+            @Override
+            public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> msgs,
+                                                            ConsumeConcurrentlyContext context) {
+                // System.out.printf("%s Receive New Messages: %s %n", Thread.currentThread().getName(), msgs);
+                System.out.printf("%s Receive New Messages: %s %n", Thread.currentThread().getName(), new String(msgs.get(0).getBody()));
+                return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
+            }
+        });
+
+        /*
+         *  Launch the consumer instance.
+         */
+        consumer.start();
+
+        System.out.printf("Consumer Started.%n");
+    }
+}
+```
+
+## 异步消息
+
+```java
+public class AsyncProducer {
+    public static void main(String[] args) throws MQClientException, RemotingException, InterruptedException {
+        DefaultMQProducer producer = new DefaultMQProducer("async_queue");
+        producer.setNamesrvAddr("127.0.0.1:9876");
+        producer.start();
+        for (int i = 0; i < 10; i++) {
+            Message msg = new Message("TopicTest",
+                    "TagA",
+                    ("ASyncProducer " + i).getBytes(StandardCharsets.UTF_8)
+            );
+            producer.send(msg, new SendCallback() {
+                @Override
+                public void onSuccess(SendResult sendResult) {
+                    String nowDateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss"));
+                    System.out.println("--------------" + nowDateTime);
+                    System.err.println("发送成功 = " + sendResult.getMsgId());
+                }
+
+                @Override
+                public void onException(Throwable e) {
+                    String nowDateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss"));
+                    System.out.println("--------------" + nowDateTime);
+                    System.err.println("发送失败 = " + e);
+                }
+            });
+            // 如果没有这样，那么消息发送完了就直接关闭了，甚至会报错连接不上127.0.0.1:9876
+            TimeUnit.SECONDS.sleep(1);
+        }
+        producer.shutdown();
+    }
+}
+```
+
+```java
+public class AsyncConsumer {
+    public static void main(String[] args) throws MQClientException {
+        DefaultMQPushConsumer consumer = new DefaultMQPushConsumer("async_queue");
+        consumer.setNamesrvAddr("127.0.0.1:9876");
+
+        // Specify where to start in case the specified consumer group is a brand new one.
+        consumer.setConsumeFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET);
+
+        /*
+         * Subscribe one more more topics to consume.
+         */
+        consumer.subscribe("TopicTest", "*");
+
+        /*
+         *  Register callback to execute on arrival of messages fetched from brokers.
+         */
+        consumer.registerMessageListener(new MessageListenerConcurrently() {
+
+            @Override
+            public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> msgs,
+                                                            ConsumeConcurrentlyContext context) {
+                // System.out.printf("%s Receive New Messages: %s %n", Thread.currentThread().getName(), msgs);
+                System.out.printf("%s Receive New Messages: %s %n", Thread.currentThread().getName(), new String(msgs.get(0).getBody()));
+                return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
+            }
+        });
+
+        /*
+         *  Launch the consumer instance.
+         */
+        consumer.start();
+
+        System.out.printf("Consumer Started.%n");
+    }
+}
+```
+
+
+
+## 单向消息
+
+单向消息不管broker，发送完成后，直接会停止工作
+
+```java
+public class OneWayProducer {
+    public static void main(String[] args) throws MQClientException, RemotingException, InterruptedException {
+        //1.创建消息生产者producer，并制定生产者组名
+        DefaultMQProducer producer = new DefaultMQProducer("one_way");
+        //2.指定Nameserver地址
+        producer.setNamesrvAddr("127.0.0.1:9876");
+        //3.启动producer
+        producer.start();
+
+        for (int i = 0; i < 3; i++) {
+            //4.创建消息对象，指定主题Topic、Tag和消息体
+            /**
+             * 参数一：消息主题Topic
+             * 参数二：消息Tag
+             * 参数三：消息内容
+             */
+            Message msg = new Message("TopicTest", "TagA", ("Hello World，单向消息" + i).getBytes());
+            //5.发送单向消息
+            producer.sendOneway(msg);
+        }
+
+        //6.关闭生产者producer
+        producer.shutdown();
+    }
+}
+```
+
+```java
+public class OneWayConsumer {
+    public static void main(String[] args) throws MQClientException {
+
+        DefaultMQPushConsumer consumer = new DefaultMQPushConsumer("one_way");
+        consumer.setNamesrvAddr("127.0.0.1:9876");
+
+        consumer.setConsumeFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET);
+
+        consumer.subscribe("TopicTest", "*");
+
+        consumer.registerMessageListener(new MessageListenerConcurrently() {
+
+            @Override
+            public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> msgs,
+                                                            ConsumeConcurrentlyContext context) {
+                System.out.printf("%s Receive New Messages: %s %n", Thread.currentThread().getName(), new String(msgs.get(0).getBody()));
+                return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
+            }
+        });
+
+        consumer.start();
+
+        System.out.printf("Consumer Started.%n");
+    }
+}
+```
+
+## 顺序消息
+
+```java
+public class SortProducer {
+    public static void main(String[] args) throws MQClientException, RemotingException, InterruptedException, MQBrokerException {
+
+        DefaultMQProducer producer = new DefaultMQProducer("order_Producer");
+        producer.setNamesrvAddr("127.0.0.1:9876");
+
+        producer.start();
+
+        // String[] tags = new String[] { "TagA", "TagB", "TagC", "TagD",
+        // "TagE" };
+
+        for (int i = 1; i <= 5; i++) {
+
+            Message msg = new Message("TopicOrderTest", "order_1", "KEY" + i, ("order_1 " + i).getBytes());
+
+            SendResult sendResult = producer.send(msg, new MessageQueueSelector() {
+                @Override
+                public MessageQueue select(List<MessageQueue> mqs, Message msg, Object arg) {
+                    Integer id = (Integer) arg;
+                    int index = id % mqs.size();
+                    return mqs.get(index);
+                }
+            }, 0);
+
+            System.out.println(sendResult);
+        }
+
+        producer.shutdown();
+    }
+}
+```
+
+```java
+public class SortConsumer {
+    public static void main(String[] args) throws MQClientException {
+
+        DefaultMQPushConsumer consumer = new DefaultMQPushConsumer("order_Consumer");
+        consumer.setNamesrvAddr("127.0.0.1:9876");
+
+        /**
+         * 设置Consumer第一次启动是从队列头部开始消费还是队列尾部开始消费<br>
+         * 如果非第一次启动，那么按照上次消费的位置继续消费
+         */
+        consumer.setConsumeFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET);
+
+        consumer.subscribe("TopicOrderTest", "*");
+        // consumer.subscribe("TopicOrderTest", "order_1||order_2");
+
+        consumer.registerMessageListener(new MessageListenerOrderly() {
+            @Override
+            public ConsumeOrderlyStatus consumeMessage(List<MessageExt> msgs, ConsumeOrderlyContext context) {
+                // 设置自动提交
+                context.setAutoCommit(Boolean.TRUE);
+                for (MessageExt msg : msgs) {
+                    System.out.println(msg + ",内容：" + new String(msg.getBody()));
+                }
+                return ConsumeOrderlyStatus.SUCCESS;
+            }
+        });
+
+        consumer.start();
+
+        System.out.println("Consumer1 Started.");
+    }
+}
+```
+
+
+
+
+
+## Consumer的接收
+
+```
+MessageModel messageModel = consumer.getMessageModel();
+System.out.println(messageModel); 
+// 默认的
+// CLUSTERING
+
+// 同一个consumerGroup下，同一个Topic，那么会进行负载均衡。
+// 不同一个consumerGroup下，同一个Topic，那么两个consumer都会收到所有的消息
+```
+
+```
+同一个consumerGroup下，不同的Topic，会负载均衡，如果有一台挂掉，消息会由于负载均衡，或者相关的措施，转发到其他的消费者
+```
+
+```
+不同的consumergroup下，相同的topic
+
+要看producer发送的consumergroup和topic
+
+如果和producer的consumergroup不同，topic相同的话，那么会收到所有的消息
+如果和producer的consumergroup相同，topic不同的话，那么收不到消息，但是假如这个consumergroup修改一下topic，那么就又会收到所有的消息
+```
+
+
+
+
+
+# Producer实战中的问题
+
+
+
+
+
+# Consumer实战中的问题
+
+## setConsumeFromWhere
+
+```java
+consumer.setConsumeFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET);
+
+public enum ConsumeFromWhere {
+    // 一个新的订阅组第一次启动从队列的最后位置开始消费<br>
+    // 后续再启动接着上次消费的进度开始消费
+    CONSUME_FROM_LAST_OFFSET,
+
+    @Deprecated
+    CONSUME_FROM_LAST_OFFSET_AND_FROM_MIN_WHEN_BOOT_FIRST,
+    @Deprecated
+    CONSUME_FROM_MIN_OFFSET,
+    @Deprecated
+    CONSUME_FROM_MAX_OFFSET,
+    CONSUME_FROM_FIRST_OFFSET,
+    CONSUME_FROM_TIMESTAMP,
+}
+```
+
+
+
+# 共同存在的问题
+
+## setInstanceName
+
+```java
+producer.setInstanceName("ProducerInstanceName");
+// 默认情况下不需要设置instanceName，rocketmq会使用ip@pid(pid代表jvm名字)作为唯一标示
+// 如果同一个jvm中，不同的producer需要往不同的rocketmq集群发送消息，需要设置不同的instanceName
+// 原因如下：如果不设置instanceName，那么会使用ip@pid作为producer唯一标识，
+// 那么会导致多个producer内部只有一个MQClientInstance(与mq交互)实例，从而导致只往一个集群发消息。
+
+consumer.setInstanceName("ConsumerInstanceName");
+// 默认情况下不需要设置instanceName，rocketmq会使用ip@pid作为instanceName(pid代表jvm名字)
+// 如果设置instanceName，rocketmq会使用ip@instanceName作为consumer的唯一标示，此时需要注意instanceName需要不同。
+
+```
+
+consumer设置上instanceName后，无法集群消费的问题调查
+
+```
+应用场景：
+一台机器上的多个consumer jvm进程消费整个集群的消息
+问题说明：
+由于集群模式下我们希望consumer能够平均消费整个集群的消息，但是设置上instanceName后，发现每个consumer都消费整个集群的消息。
+
+instanceName	DEFAULT	 客户端实例名称，客户端创建的多个 Producer、Consumer 实际是共用一个内部实例（这个实例包含网络连接、线程资源等）
+```
+
+## consumerGroup和Topic
 
