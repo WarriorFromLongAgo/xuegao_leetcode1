@@ -3844,6 +3844,184 @@ public class SortConsumer {
 }
 ```
 
+## 延迟消息
+
+```java
+public class DelayProducer {
+    public static void main(String[] args) throws MQClientException {
+        DefaultMQProducer producer = new DefaultMQProducer("sync_queue");
+        producer.setNamesrvAddr("127.0.0.1:9876");
+        producer.start();
+        for (int i = 0; i < 10; i++) {
+            try {
+                String nowDateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss"));
+                Message msg = new Message("TopicTest",
+                        "TagA",
+                        ("DelayProducer " + i + " " + nowDateTime).getBytes(StandardCharsets.UTF_8)
+                );
+                msg.setDelayTimeLevel(3);
+                SendResult sendResult = producer.send(msg);
+
+                SendStatus status = sendResult.getSendStatus();
+                System.err.println(status);
+                System.err.println("消息发出: " + sendResult);
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        producer.shutdown();
+    }
+}
+```
+
+```java
+public class DelayConsumer {
+    public static void main(String[] args) throws MQClientException {
+        DefaultMQPushConsumer consumer = new DefaultMQPushConsumer("sync_queue1");
+        consumer.setNamesrvAddr("127.0.0.1:9876");
+
+        consumer.setConsumeFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET);
+
+        consumer.subscribe("TopicTest", "*");
+
+        consumer.registerMessageListener(new MessageListenerConcurrently() {
+            @Override
+            public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> msgs,
+                                                            ConsumeConcurrentlyContext context) {
+                String nowDateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss"));
+                System.out.println(Thread.currentThread().getName() + " Receive New Messages: + " + nowDateTime + " " + new String(msgs.get(0).getBody()));
+                return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
+            }
+        });
+
+        consumer.start();
+
+        System.out.printf("Consumer Started.%n");
+    }
+}
+```
+
+## 批量消息
+
+```java
+public class BatchProducer {
+    public static void main(String[] args) throws MQClientException, RemotingException, InterruptedException, MQBrokerException {
+        DefaultMQProducer producer = new DefaultMQProducer("BatchProducerGroupName");
+        producer.setNamesrvAddr("127.0.0.1:9876");
+        producer.start();
+
+        String topic = "BatchTest";
+        List<Message> messages = new ArrayList<>();
+        messages.add(new Message(topic, "Tag", "OrderID001", "Hello world 0".getBytes()));
+        messages.add(new Message(topic, "Tag", "OrderID002", "Hello world 1".getBytes()));
+        messages.add(new Message(topic, "Tag", "OrderID003", "Hello world 2".getBytes()));
+
+        SendResult send = producer.send(messages);
+        System.out.println(send.getSendStatus());
+
+        producer.shutdown();
+    }
+}
+```
+
+```java
+public class BatchConsumer {
+    public static void main(String[] args) throws MQClientException {
+        DefaultMQPushConsumer consumer = new DefaultMQPushConsumer("BatchProducerGroupName");
+        consumer.setNamesrvAddr("127.0.0.1:9876");
+        consumer.setConsumeFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET);
+        consumer.setMessageModel(MessageModel.BROADCASTING);
+        consumer.subscribe("BatchTest", "*");
+        consumer.registerMessageListener(new MessageListenerConcurrently() {
+            @Override
+            public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> msgs,
+                                                            ConsumeConcurrentlyContext context) {
+                System.out.printf("%s Receive New Messages: %s %n", Thread.currentThread().getName(), new String(msgs.get(0).getBody()));
+                return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
+            }
+        });
+        consumer.start();
+        System.out.printf("Consumer Started.%n");
+    }
+}
+```
+
+```java
+public class BatchProducer2 {
+    public static void main(String[] args) throws MQClientException, RemotingException, InterruptedException, MQBrokerException {
+        DefaultMQProducer producer = new DefaultMQProducer("BatchProducerGroupName");
+        producer.setNamesrvAddr("127.0.0.1:9876");
+        producer.start();
+
+        //large batch
+        String topic = "BatchTest";
+        List<Message> messages = new ArrayList<>(100 * 1000);
+        for (int i = 0; i < 100 * 1000; i++) {
+            messages.add(new Message(topic, "Tag", "OrderID" + i, ("Hello world " + i).getBytes()));
+        }
+
+        //split the large batch into small ones:
+        ListSplitter splitter = new ListSplitter(messages);
+        while (splitter.hasNext()) {
+            List<Message> listItem = splitter.next();
+            System.out.println(listItem.size());
+            producer.send(listItem);
+        }
+    }
+}
+class ListSplitter implements Iterator<List<Message>> {
+    private int sizeLimit = 1000 * 1000;
+    private final List<Message> messages;
+    private int currIndex;
+
+    public ListSplitter(List<Message> messages) {
+        this.messages = messages;
+    }
+
+    @Override
+    public boolean hasNext() {
+        return currIndex < messages.size();
+    }
+
+    @Override
+    public List<Message> next() {
+        int nextIndex = currIndex;
+        int totalSize = 0;
+        for (; nextIndex < messages.size(); nextIndex++) {
+            Message message = messages.get(nextIndex);
+            int tmpSize = message.getTopic().length() + message.getBody().length;
+            Map<String, String> properties = message.getProperties();
+            for (Map.Entry<String, String> entry : properties.entrySet()) {
+                tmpSize += entry.getKey().length() + entry.getValue().length();
+            }
+            tmpSize = tmpSize + 20;
+            if (tmpSize > sizeLimit) {
+                if (nextIndex - currIndex == 0) {
+                    nextIndex++;
+                }
+                break;
+            }
+            if (tmpSize + totalSize > sizeLimit) {
+                break;
+            } else {
+                totalSize += tmpSize;
+            }
+
+        }
+        List<Message> subList = messages.subList(currIndex, nextIndex);
+        currIndex = nextIndex;
+        return subList;
+    }
+
+    @Override
+    public void remove() {
+        throw new UnsupportedOperationException("Not allowed to remove");
+    }
+}
+
+```
+
 
 
 
