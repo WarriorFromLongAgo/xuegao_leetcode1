@@ -8,9 +8,21 @@ gitee：https://gitee.com/apache/rocketmq
 
 ## 全局install
 
-```
+```java
 mvn -Prelease-all -DskipTests clean install -U
+
+// maven mvn Failed during checkstyle execution
+mvn -Prelease-all -DskipTests -Dcheckstyle.skip clean install -U
+
+// junit包找不到，那么就直接使用下面的命令
+// -DskipTests，不执行测试用例，但编译测试用例类生成相应的class文件至target/test-classes下。
+// -Dmaven.test.skip=true，不执行测试用例，也不编译测试用例类。
+mvn -Prelease-all -Dmaven.test.skip=true -Dcheckstyle.skip clean install -U
 ```
+
+![image-20210407104233715](rocketmq/image-20210407104233715.png)
+
+
 
 ## 启动namesrv
 

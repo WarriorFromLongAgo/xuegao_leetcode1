@@ -29,17 +29,18 @@ class ThreadWait11 implements Runnable {
     }
 
     public void count() {
-        while (count < 20) {
+
             synchronized (this) {
                 System.out.println(Thread.currentThread().getName() + " say : count is " + count);
                 try {
                     count++;
-                    this.wait(100);
+                    this.wait();
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
-        }
+            this.notify();
+
 
     }
 }
