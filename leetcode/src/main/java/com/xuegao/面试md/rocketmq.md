@@ -68,6 +68,8 @@ E:\GiteeDemo\xuegao-rocketmq-read\rocketmq\user.home
 
 ![image-20210315155718101](rocketmq/image-20210315155718101.png)
 
+![image-20210328213251423](C:\Users\65126\AppData\Roaming\Typora\typora-user-images\image-20210328213251423.png)
+
 ## 启动broker
 
 进入org.apache.rocketmq.broker.BrokerStartup，可以执行main方法，同样需要先配置rocketHome
@@ -95,6 +97,8 @@ if (null == brokerConfig.getRocketmqHome()) {
 ‐n 127.0.0.0:9876 -c E:\GiteeDemo\rocketmq\distribution\conf\broker.conf
 
 ![img](rocketmq/16f741119b9219eb)
+
+![image-20210328213236489](C:\Users\65126\AppData\Roaming\Typora\typora-user-images\image-20210328213236489.png)
 
 然后运行BrokerStartup#main启动broker
 
@@ -4117,4 +4121,6 @@ instanceName	DEFAULT	 客户端实例名称，客户端创建的多个 Producer�
 ## consumerGroup和Topic
 
 aaaaaaa
+
+
 
