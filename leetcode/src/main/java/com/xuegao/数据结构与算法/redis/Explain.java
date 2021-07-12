@@ -41,7 +41,18 @@ public class Explain {
     }
 
     public void list() {
-        // 列表对象的编码可以是quicklist, ziplist或者linkedlist。
+        // 列表对象的编码可以是 quicklist, ziplist或者linkedlist。
+        // 在低版本的Redis中，list采用的底层数据结构是ziplist+linkedList，高版本的Redis中，quicklist替换了ziplist+linkedList，
+        // 而quicklist也用到了ziplist，所以可以说list间接使用了ziplist数据结构。
+        // 因为ziplist是紧凑存储，没有冗余空间，意味着新插入元素，就需要扩展内存，这就分为两种情况：
+        // 分配新的内存，将原数据拷贝到新内存；
+        // 扩展原有内存。
+        // 所以ziplist 不适合存储大型字符串，存储的元素也不宜过多。
+        //
+        // 作者：CoderBear
+        // 链接：https://www.jianshu.com/p/2d276c3f7cff
+        // 来源：简书
+        // 著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。
 
         // 127.0.0.1:6379> rpush list 1
         // (integer) 1
