@@ -8,19 +8,6 @@ package com.xuegao.数据结构与算法.redis;
  * <br/> @date：2021/01/22 16:24
  */
 public class Explain {
-    // 1，简单动态字符串
-    // 链表
-    // 字典，hash表
-    // 跳跃表，skipList
-    // 整数集合 intset
-    // 压缩列表 ziplist
-
-
-// 127.0.0.1:6379> sadd number 1 2 3 4 5
-// (integer) 3
-// 127.0.0.1:6379> object encoding number
-// "intset"
-
     public void string() {
         // 字符串对象的编码可以是int、raw或者embstr
 
@@ -71,12 +58,18 @@ public class Explain {
         // (integer) 1
         // 127.0.0.1:6379> object encoding hash
         // "ziplist"
-
     }
 
     public void set() {
         // 集合对象的编码可以是intset或者hashtable。
-
+        // 127.0.0.1:6379> sadd set redis
+        // (integer) 1
+        // 127.0.0.1:6379> object encoding set
+        // "hashtable"
+        // 127.0.0.1:6379> sadd set 1
+        // (integer) 1
+        // 127.0.0.1:6379> object encoding set
+        // "intset"
 
     }
 
@@ -84,9 +77,6 @@ public class Explain {
         // 有序集合的编码可以是ziplist或者skiplist
         // 为什么有序集合需要同时使用跳跃表和字典来实现？
 
-        // sort set
-        // sort set
-        // sort set
         // 127.0.0.1:6379> zcard zset2
         // (integer) 127
         // 127.0.0.1:6379> object encoding zset2
