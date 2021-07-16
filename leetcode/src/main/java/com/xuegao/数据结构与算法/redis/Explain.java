@@ -8,6 +8,8 @@ package com.xuegao.数据结构与算法.redis;
  * <br/> @date：2021/01/22 16:24
  */
 public class Explain {
+    // https://mp.weixin.qq.com/s?__biz=MzA4NTg1MjM0Mg==&mid=509777776&idx=1&sn=e56f24bdf2de7e25515fe9f25ef57557&mpshare=1&scene=1
+
     public void string() {
         // 字符串对象的编码可以是int、raw或者embstr
 
