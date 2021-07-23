@@ -14,6 +14,8 @@ public class ZSkipList {
 
     private Long length;
 
+    private Integer level;
+
 
 
 }
