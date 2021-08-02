@@ -1,4 +1,4 @@
-package com.xuegao.数据结构与算法.redis.skiplist2;
+package com.xuegao.数据结构与算法.redis.skiplist4;
 
 import java.util.Random;
 
@@ -9,9 +9,9 @@ import java.util.Random;
 public class SkipList {
     public static final int MAX_LEVEL = 16; //跳表所允许的最大层级
 
-    private final SkipListNode head = new SkipListNode(null, MAX_LEVEL);
+    private SkipListNode head = new SkipListNode(null, MAX_LEVEL);
 
-    private final Random random = new Random();
+    private Random random = new Random();
 
     private int usedLevel = 1; //当前跳表使用中的最大层级
 
@@ -214,24 +214,28 @@ public class SkipList {
     public static void main(String[] args) {
         SkipList skipList = new SkipList();
 
-        skipList.insert(10);
-
-        skipList.insert(25);
-
-        skipList.insert(83);
-
+        skipList.insert(100);
+        skipList.insert(30);
+        skipList.insert(80);
         skipList.insert(20);
+        skipList.insert(90);
+        skipList.insert(40);
+        skipList.insert(60);
+        skipList.insert(10);
 
         skipList.print();
 
         System.out.println("------------------");
 
-        skipList.delete(83);
-
-        skipList.delete(20);
+        // skipList.delete(83);
+        //
+        // skipList.delete(20);
 
         skipList.print();
 
     }
 
 }
+// ————————————————
+//         版权声明：本文为CSDN博主「不贰郭」的原创文章，遵循CC4.0BY-SA版权协议，转载请附上原文出处链接及本声明。
+//         原文链接：https://blog.csdn.net/weixin_42532473/article/details/114104697

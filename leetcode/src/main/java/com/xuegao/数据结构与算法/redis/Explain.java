@@ -76,7 +76,7 @@ public class Explain {
     }
 
     public void sortSet() {
-        // 有序集合的编码可以是ziplist或者skiplist
+        // 有序集合的编码可以是 ziplist 或者 skiplist
         // 为什么有序集合需要同时使用跳跃表和字典来实现？
 
         // 127.0.0.1:6379> zcard zset2
