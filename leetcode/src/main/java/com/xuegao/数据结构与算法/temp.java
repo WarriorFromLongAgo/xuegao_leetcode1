@@ -10,14 +10,14 @@ package com.xuegao.数据结构与算法;
 public class temp {
 
     protected static void b() {
-        synchronized (a) {
-            a.clear();
-        }
+        // synchronized (a) {
+        //     a.clear();
+        // }
     }
 
-    public static boolean b() {
-        return b.isEmpty();
-    }
+    // public static boolean b() {
+    //     return b.isEmpty();
+    // }
 
     static class a {
         public static void clear() {
