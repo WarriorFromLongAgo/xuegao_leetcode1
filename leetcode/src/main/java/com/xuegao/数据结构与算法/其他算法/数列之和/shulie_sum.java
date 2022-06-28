@@ -1,5 +1,7 @@
 package com.xuegao.数据结构与算法.其他算法.数列之和;
 
+import com.xuegao.数据结构与算法.断言.AssertUtil;
+
 public class shulie_sum {
     // 输入只有一行，包含两个用空格分开的整数M和N( 0 < M < 10, 0 < N < 100000 )
 
@@ -9,8 +11,12 @@ public class shulie_sum {
     public static void main(String[] args) {
         int m = 2;
         int n = 5;
-        temp(m, n);
-        temp(8, 25);
+        double temp = temp(m, n);
+        AssertUtil.isTrue(temp == 24690D);
+
+        AssertUtil.isTrue(temp(2, 6) == 246912D);
+
+        AssertUtil.isTrue(temp(3, 7) == 3703701D);
     }
 
     public static double temp(int m, int n) {
